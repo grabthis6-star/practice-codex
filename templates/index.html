@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>하드자막 OCR 추출기</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <div class="container">
+    <h1>MP4 하드자막 OCR 추출기</h1>
+
+    <section class="card">
+      <h2>1) 영상 업로드</h2>
+      <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+        <input type="file" name="video" accept="video/mp4" required />
+        <button type="submit">업로드</button>
+      </form>
+    </section>
+
+    {% if job %}
+    <section class="card">
+      <h2>2) 자막이 보이는 프레임 선택</h2>
+      {% if job.thumbnails %}
+      <form action="{{ url_for('select_frame') }}" method="post">
+        <input type="hidden" name="job_id" value="{{ job_id }}" />
+        <div class="thumb-grid">
+          {% for thumb in job.thumbnails %}
+          <label class="thumb-item">
+            <input type="radio" name="timestamp" value="{{ thumb.timestamp }}" required
+              {% if job.selected_timestamp == thumb.timestamp %}checked{% endif %} />
+            <img src="/{{ thumb.path }}" alt="{{ thumb.timestamp }}s" />
+            <span>{{ thumb.timestamp }}s</span>
+          </label>
+          {% endfor %}
+        </div>
+        <button type="submit">이 프레임 선택</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if job and job.selected_frame %}
+    <section class="card">
+      <h2>3) ROI(자막 영역) 드래그 지정</h2>
+      <p>아래 이미지에서 마우스로 자막 영역을 드래그하세요.</p>
+      <div class="frame-wrap">
+        <img id="roi-image" src="/{{ job.selected_frame }}" alt="선택 프레임" />
+        <div id="roi-box"></div>
+      </div>
+      <form action="{{ url_for('set_roi') }}" method="post" id="roi-form">
+        <input type="hidden" name="job_id" value="{{ job_id }}" />
+        <input type="hidden" name="x" id="x" />
+        <input type="hidden" name="y" id="y" />
+        <input type="hidden" name="w" id="w" />
+        <input type="hidden" name="h" id="h" />
+        <button type="submit">ROI 저장</button>
+      </form>
+      {% if job.roi %}
+      <p class="success">현재 ROI: x={{ job.roi.x }}, y={{ job.roi.y }}, w={{ job.roi.w }}, h={{ job.roi.h }}</p>
+      <form action="{{ url_for('start_ocr') }}" method="post">
+        <input type="hidden" name="job_id" value="{{ job_id }}" />
+        <button type="submit">1초 간격 OCR 시작</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if job and job.status == 'processing' %}
+    <section class="card processing">
+      <h2>OCR 처리 중...</h2>
+      <p>1초마다 ROI를 OCR 중입니다. 잠시만 기다려주세요.</p>
+      <form action="{{ url_for('reset_roi') }}" method="post">
+        <input type="hidden" name="job_id" value="{{ job_id }}" />
+        <button type="submit" class="secondary">ROI 재설정</button>
+      </form>
+    </section>
+    <meta http-equiv="refresh" content="2">
+    {% endif %}
+
+    {% if job and job.status == 'done' %}
+    <section class="card">
+      <h2>OCR 결과 (중복/유사 문장 제거)</h2>
+      <pre class="result">{{ job.result_text }}</pre>
+      <a class="button" href="{{ url_for('download', job_id=job_id) }}">TXT 다운로드</a>
+      <form action="{{ url_for('reset_roi') }}" method="post" class="inline-form">
+        <input type="hidden" name="job_id" value="{{ job_id }}" />
+        <button type="submit" class="secondary">ROI 재설정</button>
+      </form>
+    </section>
+    {% endif %}
+
+    {% if job and job.status == 'cancelled' %}
+    <section class="card">
+      <h2>OCR 취소됨</h2>
+      <p>ROI를 다시 지정한 뒤 OCR을 재시작하세요.</p>
+    </section>
+    {% endif %}
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
