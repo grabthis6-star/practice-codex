@@ -1,0 +1,97 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #f3f5f8;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.thumb-item {
+  border: 1px solid #d2d7df;
+  border-radius: 8px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thumb-item img {
+  width: 100%;
+  height: 95px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.frame-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+#roi-image {
+  max-width: 100%;
+  border-radius: 8px;
+  border: 1px solid #ccc;
+}
+
+#roi-box {
+  position: absolute;
+  border: 2px solid #00a3ff;
+  background: rgba(0, 163, 255, 0.2);
+  pointer-events: none;
+  display: none;
+}
+
+button, .button {
+  background: #0077ff;
+  color: #fff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+
+button.secondary {
+  background: #666;
+}
+
+.success {
+  color: #1f7a1f;
+  font-weight: 600;
+}
+
+.result {
+  background: #111;
+  color: #f1f1f1;
+  padding: 12px;
+  border-radius: 8px;
+  max-height: 340px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.inline-form {
+  display: inline-block;
+  margin-left: 8px;
+}
