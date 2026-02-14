@@ -2,112 +2,270 @@ document.addEventListener("DOMContentLoaded", () => {
   const img = document.getElementById("roi-image");
   const box = document.getElementById("roi-box");
 
-  // ROI 입력(hidden)
   const xInput = document.getElementById("x");
   const yInput = document.getElementById("y");
   const wInput = document.getElementById("w");
   const hInput = document.getElementById("h");
 
-  // ROI 화면이 아닌 페이지에서는 그냥 종료
+  const xNumber = document.getElementById("roi-x");
+  const yNumber = document.getElementById("roi-y");
+  const wNumber = document.getElementById("roi-w");
+  const hNumber = document.getElementById("roi-h");
+  const resetBtn = document.getElementById("roi-reset");
+
   if (!img || !box || !xInput || !yInput || !wInput || !hInput) return;
 
-  let dragging = false;
-  let startX = 0;
-  let startY = 0;
-  let lastRect = null;
+  const MIN_SIZE = 5;
+  const state = {
+    mode: null,
+    handle: null,
+    startPoint: null,
+    startRect: null,
+    rect: null,
+  };
 
-  // 화면 좌표 -> 이미지 내부 좌표(보이는 크기 기준)로 변환
-  function getPoint(e) {
-    const rect = img.getBoundingClientRect();
-    const clientX = e.clientX;
-    const clientY = e.clientY;
-
-    // 이미지 영역 밖에서 시작하면 무시할 수 있게 clamp
-    const x = Math.max(0, Math.min(clientX - rect.left, rect.width));
-    const y = Math.max(0, Math.min(clientY - rect.top, rect.height));
-    return { x, y, rect };
+  function getScale() {
+    const imgRect = img.getBoundingClientRect();
+    return {
+      scaleX: img.naturalWidth / imgRect.width,
+      scaleY: img.naturalHeight / imgRect.height,
+      boundsW: imgRect.width,
+      boundsH: imgRect.height,
+    };
   }
 
-  function setBox(x, y, w, h) {
-    box.style.display = "block";
-    box.style.left = `${x}px`;
-    box.style.top = `${y}px`;
-    box.style.width = `${w}px`;
-    box.style.height = `${h}px`;
+  function clampRect(rect) {
+    const { boundsW, boundsH } = getScale();
+    const x = Math.max(0, Math.min(rect.x, boundsW));
+    const y = Math.max(0, Math.min(rect.y, boundsH));
+    const maxW = boundsW - x;
+    const maxH = boundsH - y;
+    const w = Math.max(0, Math.min(rect.w, maxW));
+    const h = Math.max(0, Math.min(rect.h, maxH));
+    return { x, y, w, h };
   }
 
-  function setInputsFromDisplayRect(displayX, displayY, displayW, displayH) {
-    // 이미지가 화면에서 축소/확대되어 보이므로,
-    // 실제 원본 픽셀 좌표로 변환해서 서버에 보내는 게 정확함.
+  function pointFromEvent(e) {
     const rect = img.getBoundingClientRect();
-    const scaleX = img.naturalWidth / rect.width;
-    const scaleY = img.naturalHeight / rect.height;
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    return { x, y };
+  }
 
-    const realX = Math.round(displayX * scaleX);
-    const realY = Math.round(displayY * scaleY);
-    const realW = Math.round(displayW * scaleX);
-    const realH = Math.round(displayH * scaleY);
+  function displayRectToReal(rect) {
+    const { scaleX, scaleY } = getScale();
+    return {
+      x: Math.round(rect.x * scaleX),
+      y: Math.round(rect.y * scaleY),
+      w: Math.round(rect.w * scaleX),
+      h: Math.round(rect.h * scaleY),
+    };
+  }
 
-    xInput.value = realX;
-    yInput.value = realY;
-    wInput.value = realW;
-    hInput.value = realH;
+  function realRectToDisplay(rect) {
+    const { scaleX, scaleY, boundsW, boundsH } = getScale();
+    return clampRect({
+      x: rect.x / scaleX,
+      y: rect.y / scaleY,
+      w: rect.w / scaleX,
+      h: rect.h / scaleY,
+    }, boundsW, boundsH);
+  }
+
+  function applyRect(rect, syncNumber = true) {
+    const normalized = clampRect(rect);
+    state.rect = normalized;
+
+    if (normalized.w < MIN_SIZE || normalized.h < MIN_SIZE) {
+      box.style.display = "none";
+    } else {
+      box.style.display = "block";
+      box.style.left = `${normalized.x}px`;
+      box.style.top = `${normalized.y}px`;
+      box.style.width = `${normalized.w}px`;
+      box.style.height = `${normalized.h}px`;
+    }
+
+    const real = displayRectToReal(normalized);
+    xInput.value = real.x;
+    yInput.value = real.y;
+    wInput.value = real.w;
+    hInput.value = real.h;
+
+    if (syncNumber && xNumber && yNumber && wNumber && hNumber) {
+      xNumber.value = real.x;
+      yNumber.value = real.y;
+      wNumber.value = real.w;
+      hNumber.value = real.h;
+    }
+  }
+
+  function clearRect() {
+    state.rect = null;
+    box.style.display = "none";
+    xInput.value = "";
+    yInput.value = "";
+    wInput.value = "";
+    hInput.value = "";
+
+    if (xNumber && yNumber && wNumber && hNumber) {
+      xNumber.value = 0;
+      yNumber.value = 0;
+      wNumber.value = 0;
+      hNumber.value = 0;
+    }
+  }
+
+  function resizeByHandle(base, handle, dx, dy) {
+    let left = base.x;
+    let top = base.y;
+    let right = base.x + base.w;
+    let bottom = base.y + base.h;
+
+    if (handle.includes("n")) top += dy;
+    if (handle.includes("s")) bottom += dy;
+    if (handle.includes("w")) left += dx;
+    if (handle.includes("e")) right += dx;
+
+    if (right < left) [left, right] = [right, left];
+    if (bottom < top) [top, bottom] = [bottom, top];
+
+    return clampRect({ x: left, y: top, w: right - left, h: bottom - top });
+  }
+
+  function startDraw(e) {
+    state.mode = "draw";
+    const p = pointFromEvent(e);
+    state.startPoint = p;
+    state.startRect = { x: p.x, y: p.y, w: 0, h: 0 };
+    applyRect(state.startRect);
+  }
+
+  function startMove(e) {
+    if (!state.rect) return;
+    state.mode = "move";
+    state.startPoint = pointFromEvent(e);
+    state.startRect = { ...state.rect };
+  }
+
+  function startResize(e, handle) {
+    if (!state.rect) return;
+    state.mode = "resize";
+    state.handle = handle;
+    state.startPoint = pointFromEvent(e);
+    state.startRect = { ...state.rect };
   }
 
   img.addEventListener("mousedown", (e) => {
-    // 왼쪽 클릭만
     if (e.button !== 0) return;
+    e.preventDefault();
+    startDraw(e);
+  });
 
-    dragging = true;
-    const p = getPoint(e);
-    startX = p.x;
-    startY = p.y;
+  box.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || !state.rect) return;
+    e.preventDefault();
 
-    // 시작점에서 0 크기로 박스 표시
-    setBox(startX, startY, 0, 0);
-    setInputsFromDisplayRect(startX, startY, 0, 0);
+    const handle = e.target.dataset.handle;
+    if (handle) {
+      startResize(e, handle);
+    } else {
+      startMove(e);
+    }
   });
 
   window.addEventListener("mousemove", (e) => {
-    if (!dragging) return;
+    if (!state.mode || !state.startPoint || !state.startRect) return;
 
-    const p = getPoint(e);
-    const endX = p.x;
-    const endY = p.y;
+    const p = pointFromEvent(e);
+    const dx = p.x - state.startPoint.x;
+    const dy = p.y - state.startPoint.y;
 
-    const x = Math.min(startX, endX);
-    const y = Math.min(startY, endY);
-    const w = Math.abs(endX - startX);
-    const h = Math.abs(endY - startY);
+    if (state.mode === "draw") {
+      const start = state.startPoint;
+      applyRect({
+        x: Math.min(start.x, p.x),
+        y: Math.min(start.y, p.y),
+        w: Math.abs(p.x - start.x),
+        h: Math.abs(p.y - start.y),
+      });
+      return;
+    }
 
-    lastRect = { x, y, w, h };
-    setBox(x, y, w, h);
-    setInputsFromDisplayRect(x, y, w, h);
+    if (state.mode === "move") {
+      const moved = clampRect({
+        x: state.startRect.x + dx,
+        y: state.startRect.y + dy,
+        w: state.startRect.w,
+        h: state.startRect.h,
+      });
+
+      moved.x = Math.min(moved.x, getScale().boundsW - moved.w);
+      moved.y = Math.min(moved.y, getScale().boundsH - moved.h);
+      applyRect(moved);
+      return;
+    }
+
+    if (state.mode === "resize" && state.handle) {
+      applyRect(resizeByHandle(state.startRect, state.handle, dx, dy));
+    }
   });
 
-  window.addEventListener("mouseup", (e) => {
-    if (!dragging) return;
-    dragging = false;
+  window.addEventListener("mouseup", () => {
+    if (!state.mode) return;
+    if (state.rect && (state.rect.w < MIN_SIZE || state.rect.h < MIN_SIZE)) {
+      clearRect();
+    }
+    state.mode = null;
+    state.handle = null;
+    state.startPoint = null;
+    state.startRect = null;
+  });
 
-    if (e) {
-      const p = getPoint(e);
-      const endX = p.x;
-      const endY = p.y;
-      lastRect = {
-        x: Math.min(startX, endX),
-        y: Math.min(startY, endY),
-        w: Math.abs(endX - startX),
-        h: Math.abs(endY - startY),
-      };
+  if (xNumber && yNumber && wNumber && hNumber) {
+    [xNumber, yNumber, wNumber, hNumber].forEach((input) => {
+      input.addEventListener("input", () => {
+        const nextReal = {
+          x: Math.max(0, Number(xNumber.value) || 0),
+          y: Math.max(0, Number(yNumber.value) || 0),
+          w: Math.max(0, Number(wNumber.value) || 0),
+          h: Math.max(0, Number(hNumber.value) || 0),
+        };
+        applyRect(realRectToDisplay(nextReal), false);
+      });
+    });
+  }
+
+  if (resetBtn) {
+    resetBtn.addEventListener("click", () => {
+      clearRect();
+    });
+  }
+
+  function initFromHidden() {
+    const base = {
+      x: Number(xInput.value),
+      y: Number(yInput.value),
+      w: Number(wInput.value),
+      h: Number(hInput.value),
+    };
+
+    if (!base.w || !base.h) {
+      clearRect();
+      return;
     }
 
-    if (!lastRect) return;
+    applyRect(realRectToDisplay(base));
+  }
 
-    setInputsFromDisplayRect(lastRect.x, lastRect.y, lastRect.w, lastRect.h);
+  if (img.complete) {
+    initFromHidden();
+  } else {
+    img.addEventListener("load", initFromHidden, { once: true });
+  }
 
-    // 너무 작은 ROI는 화면에서 숨기되 hidden input 값은 비우지 않는다.
-    if (lastRect.w < 5 || lastRect.h < 5) {
-      box.style.display = "none";
-    }
+  window.addEventListener("resize", () => {
+    if (!xInput.value || !yInput.value || !wInput.value || !hInput.value) return;
+    initFromHidden();
   });
 });
