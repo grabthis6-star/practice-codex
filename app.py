@@ -27,6 +27,37 @@ OCR_INTERVAL_SECONDS = 2
 OCR_MAX_SECONDS_DEFAULT = 60
 
 
+def _preprocess_subtitle_roi(roi_img):
+    hsv = cv2.cvtColor(roi_img, cv2.COLOR_BGR2HSV)
+
+    v_channel = hsv[:, :, 2]
+    bright_mask = cv2.inRange(v_channel, 180, 255)
+
+    white_mask = cv2.inRange(hsv, (0, 0, 170), (180, 65, 255))
+    yellow_mask = cv2.inRange(hsv, (15, 45, 120), (40, 255, 255))
+
+    color_mask = cv2.bitwise_or(white_mask, yellow_mask)
+    subtitle_mask = cv2.bitwise_and(color_mask, bright_mask)
+
+    gray = subtitle_mask
+    closed = cv2.morphologyEx(
+        gray,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+        iterations=2,
+    )
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(closed, connectivity=8)
+    cleaned = closed.copy()
+    min_area = 25
+    for component in range(1, num_labels):
+        area = stats[component, cv2.CC_STAT_AREA]
+        if area < min_area:
+            cleaned[labels == component] = 0
+
+    return cleaned
+
+
 def _extract_frame(video_path: str, timestamp_sec: float):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -159,11 +190,17 @@ def _ocr_worker(job_id: str):
                 continue
 
             roi_img = frame[y1:y2, x1:x2]
-            gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-            denoise = cv2.GaussianBlur(gray, (3, 3), 0)
-            proc = cv2.threshold(denoise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+            proc = _preprocess_subtitle_roi(roi_img)
 
-            text = pytesseract.image_to_string(proc, lang="kor+eng", config="--psm 6")
+            if app.debug:
+                debug_name = "debug_preprocessed_roi.jpg"
+                debug_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, debug_name)
+                cv2.imwrite(debug_path, proc)
+                with JOBS_LOCK:
+                    if job_id in JOBS:
+                        JOBS[job_id]["debug_preprocessed_roi"] = f"uploads/{job_id}/{debug_name}"
+
+            text = pytesseract.image_to_string(proc, lang="kor+eng", config="--psm 4")
             text = _normalize_text(text)
             if text:
                 lines.append(text)
@@ -230,6 +267,7 @@ def upload():
         "progress_current": 0,
         "progress_total": 0,
         "error": "",
+        "debug_preprocessed_roi": None,
     }
     return redirect(url_for("index", job=job_id))
 

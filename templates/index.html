@@ -101,6 +101,10 @@
       <h2>OCR 처리 중...</h2>
       <p>2초마다 ROI를 OCR 중입니다. 잠시만 기다려주세요.</p>
       <p>진행 상황: {{ job.progress_current or 0 }}/{{ job.progress_total or 0 }} frames</p>
+      {% if config.DEBUG and job.debug_preprocessed_roi %}
+      <p>디버그 전처리 ROI 미리보기</p>
+      <img src="/{{ job.debug_preprocessed_roi }}" alt="전처리 ROI 디버그" />
+      {% endif %}
       <form action="{{ url_for('reset_roi') }}" method="post">
         <input type="hidden" name="job_id" value="{{ job_id }}" />
         <button type="submit" class="secondary">ROI 재설정</button>
@@ -112,6 +116,10 @@
     {% if job and job.status == 'done' %}
     <section class="card">
       <h2>OCR 결과 (중복/유사 문장 제거)</h2>
+      {% if config.DEBUG and job.debug_preprocessed_roi %}
+      <p>디버그 전처리 ROI 미리보기</p>
+      <img src="/{{ job.debug_preprocessed_roi }}" alt="전처리 ROI 디버그" />
+      {% endif %}
       <pre class="result">{{ job.result_text }}</pre>
       <a class="button" href="{{ url_for('download', job_id=job_id) }}">TXT 다운로드</a>
       <form action="{{ url_for('reset_roi') }}" method="post" class="inline-form">
