@@ -95,3 +95,32 @@ button.secondary {
   display: inline-block;
   margin-left: 8px;
 }
+/* ROI 영역 드래그가 안정적으로 되도록 */
+.frame-wrap{
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+/* 이미지 드래그/선택 방지 */
+#roi-image{
+  display: block;
+  max-width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ROI 박스는 마우스 이벤트를 절대 가로채지 않게 */
+#roi-box{
+  position: absolute;
+  border: 3px solid #ff3b30;
+  background: rgba(255, 59, 48, 0.15);
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  display: none;
+  pointer-events: none; /* ★ 이게 핵심 */
+  box-sizing: border-box;
+}
