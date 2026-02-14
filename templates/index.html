@@ -93,9 +93,17 @@
         <label>
           PSM 모드
           <select name="psm_mode">
-            <option value="4" {% if (job.psm_mode or 4) == 4 %}selected{% endif %}>4 (기본, single column)</option>
-            <option value="6" {% if (job.psm_mode or 4) == 6 %}selected{% endif %}>6 (uniform block)</option>
+            <option value="6" {% if (job.psm_mode or 6) == 6 %}selected{% endif %}>6 (기본, subtitle block)</option>
+            <option value="7" {% if (job.psm_mode or 6) == 7 %}selected{% endif %}>7 (single line)</option>
           </select>
+        </label>
+        <label>
+          <input type="checkbox" name="korean_only" {% if job.korean_only %}checked{% endif %} />
+          한글만 추출 (강한 필터)
+        </label>
+        <label>
+          <input type="checkbox" name="include_english" {% if job.include_english %}checked{% endif %} />
+          영어 포함
         </label>
         <button type="submit">2초 간격 OCR 시작</button>
       </form>
@@ -153,6 +161,7 @@
         {% endif %}
       </div>
       {% endif %}
+            <p>라인 통계: raw {{ job.raw_line_count or 0 }}줄 → cleaned {{ job.cleaned_line_count or 0 }}줄</p>
       <pre class="result">{{ job.result_text }}</pre>
       <a class="button" href="{{ url_for('download', job_id=job_id) }}">TXT 다운로드</a>
       <form action="{{ url_for('reset_roi') }}" method="post" class="inline-form">
