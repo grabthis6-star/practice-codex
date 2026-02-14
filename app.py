@@ -1,4 +1,5 @@
 import os
+import traceback
 import uuid
 import threading
 from difflib import SequenceMatcher
@@ -90,85 +91,104 @@ def _dedupe_lines(lines):
 
 
 def _ocr_worker(job_id: str):
-    with JOBS_LOCK:
-        job = JOBS.get(job_id)
-        if not job:
-            return
-        job["status"] = "processing"
-        job["result_text"] = ""
-
-    video_path = job["video_path"]
-    roi = job.get("roi")
-    if not roi:
+    cap = None
+    try:
         with JOBS_LOCK:
-            JOBS[job_id]["status"] = "error"
-            JOBS[job_id]["error"] = "ROI가 설정되지 않았습니다."
-        return
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        with JOBS_LOCK:
-            JOBS[job_id]["status"] = "error"
-            JOBS[job_id]["error"] = "영상 파일을 열 수 없습니다."
-        return
-
-    fps = cap.get(cv2.CAP_PROP_FPS) or 0
-    total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-    duration = int(total_frames / fps) if fps > 0 else 0
-    if job.get("limit_to_60", True):
-        duration = min(duration, OCR_MAX_SECONDS_DEFAULT)
-
-    sample_seconds = list(range(0, max(duration, 1) + 1, OCR_INTERVAL_SECONDS))
-    total_samples = len(sample_seconds)
-
-    with JOBS_LOCK:
-        JOBS[job_id]["progress_current"] = 0
-        JOBS[job_id]["progress_total"] = total_samples
-
-    x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
-    lines = []
-
-    for idx, sec in enumerate(sample_seconds, start=1):
-        with JOBS_LOCK:
-            if JOBS[job_id].get("cancel_requested"):
-                JOBS[job_id]["status"] = "cancelled"
-                cap.release()
+            job = JOBS.get(job_id)
+            if not job:
                 return
-            JOBS[job_id]["progress_current"] = idx
+            job["status"] = "processing"
+            job["result_text"] = ""
+            job["error"] = ""
 
-        cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
-        ok, frame = cap.read()
-        if not ok:
-            continue
+        video_path = job["video_path"]
+        roi = job.get("roi")
+        if not roi:
+            with JOBS_LOCK:
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["error"] = "ROI가 설정되지 않았습니다."
+            return
 
-        h_frame, w_frame = frame.shape[:2]
-        x2, y2 = min(x + w, w_frame), min(y + h, h_frame)
-        x1, y1 = max(0, x), max(0, y)
-        if x2 <= x1 or y2 <= y1:
-            continue
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            with JOBS_LOCK:
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["error"] = "영상 파일을 열 수 없습니다."
+            return
 
-        roi_img = frame[y1:y2, x1:x2]
-        gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
-        denoise = cv2.GaussianBlur(gray, (3, 3), 0)
-        proc = cv2.threshold(denoise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        fps = cap.get(cv2.CAP_PROP_FPS) or 0
+        total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        duration = int(total_frames / fps) if fps > 0 else 0
+        if job.get("limit_to_60", True):
+            duration = min(duration, OCR_MAX_SECONDS_DEFAULT)
 
-        text = pytesseract.image_to_string(proc, lang="kor+eng", config="--psm 6")
-        text = _normalize_text(text)
-        if text:
-            lines.append(text)
+        sample_seconds = list(range(0, max(duration, 1) + 1, OCR_INTERVAL_SECONDS))
+        if not sample_seconds:
+            sample_seconds = [0]
+        total_samples = len(sample_seconds)
 
-    cap.release()
+        with JOBS_LOCK:
+            JOBS[job_id]["progress_current"] = 0
+            JOBS[job_id]["progress_total"] = total_samples
 
-    deduped = _dedupe_lines(lines)
-    result_text = "\n".join(deduped)
-    result_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, "result.txt")
-    with open(result_path, "w", encoding="utf-8") as f:
-        f.write(result_text)
+        x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+        lines = []
 
-    with JOBS_LOCK:
-        JOBS[job_id]["status"] = "done"
-        JOBS[job_id]["result_text"] = result_text
-        JOBS[job_id]["result_file"] = result_path
+        for idx, sec in enumerate(sample_seconds, start=1):
+            print(f"[OCR][{job_id}] frame {idx}/{total_samples} at {sec}s")
+            with JOBS_LOCK:
+                current_job = JOBS.get(job_id)
+                if not current_job:
+                    return
+                if current_job.get("cancel_requested"):
+                    current_job["status"] = "cancelled"
+                    return
+                current_job["progress_current"] = idx
+
+            cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
+            ok, frame = cap.read()
+            if not ok:
+                print(f"[OCR][{job_id}] frame read failed at {sec}s")
+                continue
+
+            h_frame, w_frame = frame.shape[:2]
+            x2, y2 = min(x + w, w_frame), min(y + h, h_frame)
+            x1, y1 = max(0, x), max(0, y)
+            if x2 <= x1 or y2 <= y1:
+                print(f"[OCR][{job_id}] invalid ROI bounds at frame {idx}")
+                continue
+
+            roi_img = frame[y1:y2, x1:x2]
+            gray = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+            denoise = cv2.GaussianBlur(gray, (3, 3), 0)
+            proc = cv2.threshold(denoise, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+
+            text = pytesseract.image_to_string(proc, lang="kor+eng", config="--psm 6")
+            text = _normalize_text(text)
+            if text:
+                lines.append(text)
+                print(f"[OCR][{job_id}] detected text on frame {idx}")
+
+        deduped = _dedupe_lines(lines)
+        result_text = "\n".join(deduped)
+        result_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, "result.txt")
+        with open(result_path, "w", encoding="utf-8") as f:
+            f.write(result_text)
+
+        with JOBS_LOCK:
+            JOBS[job_id]["status"] = "done"
+            JOBS[job_id]["result_text"] = result_text
+            JOBS[job_id]["result_file"] = result_path
+    except Exception as exc:
+        print(f"[OCR][{job_id}] worker exception: {exc}")
+        print(traceback.format_exc())
+        with JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["status"] = "error"
+                JOBS[job_id]["error"] = str(exc)
+    finally:
+        if cap is not None:
+            cap.release()
 
 
 @app.route("/uploads/<path:filename>")
@@ -268,8 +288,8 @@ def start_ocr():
     job["limit_to_60"] = request.form.get("limit_to_60") == "on"
     job["progress_current"] = 0
     job["progress_total"] = 0
-    thread = threading.Thread(target=_ocr_worker, args=(job_id,), daemon=True)
-    thread.start()
+    print(f"[OCR][{job_id}] starting background OCR thread")
+    threading.Thread(target=_ocr_worker, args=(job_id,), daemon=True).start()
     return redirect(url_for("index", job=job_id))
 
 
