@@ -5,6 +5,7 @@ import threading
 from difflib import SequenceMatcher
 
 import cv2
+import numpy as np
 import pytesseract
 from flask import (
     Flask,
@@ -39,23 +40,48 @@ def _preprocess_subtitle_roi(roi_img):
     color_mask = cv2.bitwise_or(white_mask, yellow_mask)
     subtitle_mask = cv2.bitwise_and(color_mask, bright_mask)
 
-    gray = subtitle_mask
-    closed = cv2.morphologyEx(
-        gray,
+    binary = cv2.morphologyEx(
+        subtitle_mask,
         cv2.MORPH_CLOSE,
         cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
         iterations=2,
     )
 
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(closed, connectivity=8)
-    cleaned = closed.copy()
-    min_area = 25
-    for component in range(1, num_labels):
-        area = stats[component, cv2.CC_STAT_AREA]
-        if area < min_area:
-            cleaned[labels == component] = 0
+    roi_h, roi_w = binary.shape[:2]
+    roi_area = max(roi_h * roi_w, 1)
 
-    return cleaned
+    min_area = max(12, int(roi_area * 0.00008))
+    max_area = int(roi_area * 0.08)
+    min_box_h = max(8, int(roi_h * 0.015))
+    max_box_h = max(min_box_h + 1, int(roi_h * 0.35))
+    min_box_w = 2
+    max_box_w = max(min_box_w + 1, int(roi_w * 0.65))
+
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+    filtered_mask = np.zeros_like(binary)
+
+    for component in range(1, num_labels):
+        width = stats[component, cv2.CC_STAT_WIDTH]
+        height = stats[component, cv2.CC_STAT_HEIGHT]
+        area = stats[component, cv2.CC_STAT_AREA]
+
+        if area < min_area or area > max_area:
+            continue
+        if width < min_box_w or width > max_box_w:
+            continue
+        if height < min_box_h or height > max_box_h:
+            continue
+
+        aspect_ratio = width / max(height, 1)
+        fill_ratio = area / max(width * height, 1)
+        if aspect_ratio > 14 or aspect_ratio < 0.06:
+            continue
+        if fill_ratio < 0.08 or fill_ratio > 0.95:
+            continue
+
+        filtered_mask[labels == component] = 255
+
+    return binary, filtered_mask
 
 
 def _extract_frame(video_path: str, timestamp_sec: float):
@@ -190,17 +216,24 @@ def _ocr_worker(job_id: str):
                 continue
 
             roi_img = frame[y1:y2, x1:x2]
-            proc = _preprocess_subtitle_roi(roi_img)
+            binary_before_filter, proc = _preprocess_subtitle_roi(roi_img)
 
             if app.debug:
-                debug_name = "debug_preprocessed_roi.jpg"
-                debug_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, debug_name)
-                cv2.imwrite(debug_path, proc)
+                before_name = "debug_preprocessed_roi_before_filter.jpg"
+                after_name = "debug_preprocessed_roi_after_filter.jpg"
+                before_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, before_name)
+                after_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, after_name)
+                cv2.imwrite(before_path, binary_before_filter)
+                cv2.imwrite(after_path, proc)
                 with JOBS_LOCK:
                     if job_id in JOBS:
-                        JOBS[job_id]["debug_preprocessed_roi"] = f"uploads/{job_id}/{debug_name}"
+                        JOBS[job_id]["debug_preprocessed_roi_before"] = f"uploads/{job_id}/{before_name}"
+                        JOBS[job_id]["debug_preprocessed_roi_after"] = f"uploads/{job_id}/{after_name}"
 
-            text = pytesseract.image_to_string(proc, lang="kor+eng", config="--psm 4")
+            psm_mode = int(job.get("psm_mode", 4))
+            if psm_mode not in (4, 6):
+                psm_mode = 4
+            text = pytesseract.image_to_string(proc, lang="kor+eng", config=f"--psm {psm_mode}")
             text = _normalize_text(text)
             if text:
                 lines.append(text)
@@ -267,7 +300,9 @@ def upload():
         "progress_current": 0,
         "progress_total": 0,
         "error": "",
-        "debug_preprocessed_roi": None,
+        "debug_preprocessed_roi_before": None,
+        "debug_preprocessed_roi_after": None,
+        "psm_mode": 4,
     }
     return redirect(url_for("index", job=job_id))
 
@@ -336,6 +371,12 @@ def start_ocr():
 
     job["cancel_requested"] = False
     job["limit_to_60"] = request.form.get("limit_to_60") == "on"
+    psm_mode = request.form.get("psm_mode", "4")
+    try:
+        parsed_psm = int(psm_mode)
+    except ValueError:
+        parsed_psm = 4
+    job["psm_mode"] = parsed_psm if parsed_psm in (4, 6) else 4
     job["progress_current"] = 0
     job["progress_total"] = 0
     job["error"] = ""
