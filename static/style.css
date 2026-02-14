@@ -183,3 +183,28 @@ button.secondary {
     grid-column: span 2;
   }
 }
+
+
+.debug-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.debug-grid figure {
+  margin: 0;
+}
+
+.debug-grid figcaption {
+  font-size: 13px;
+  color: #333;
+  margin-bottom: 6px;
+}
+
+.debug-grid img {
+  width: 100%;
+  border: 1px solid #d8dde6;
+  border-radius: 8px;
+  background: #000;
+}
