@@ -14,6 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let dragging = false;
   let startX = 0;
   let startY = 0;
+  let lastRect = null;
 
   // 화면 좌표 -> 이미지 내부 좌표(보이는 크기 기준)로 변환
   function getPoint(e) {
@@ -79,23 +80,34 @@ document.addEventListener("DOMContentLoaded", () => {
     const w = Math.abs(endX - startX);
     const h = Math.abs(endY - startY);
 
+    lastRect = { x, y, w, h };
     setBox(x, y, w, h);
     setInputsFromDisplayRect(x, y, w, h);
   });
 
-  window.addEventListener("mouseup", () => {
+  window.addEventListener("mouseup", (e) => {
     if (!dragging) return;
     dragging = false;
 
-    // 너무 작은 ROI는 실수일 수 있으니 숨길 수도 있음(원하면)
-    const w = parseInt(box.style.width || "0", 10);
-    const h = parseInt(box.style.height || "0", 10);
-    if (w < 5 || h < 5) {
+    if (e) {
+      const p = getPoint(e);
+      const endX = p.x;
+      const endY = p.y;
+      lastRect = {
+        x: Math.min(startX, endX),
+        y: Math.min(startY, endY),
+        w: Math.abs(endX - startX),
+        h: Math.abs(endY - startY),
+      };
+    }
+
+    if (!lastRect) return;
+
+    setInputsFromDisplayRect(lastRect.x, lastRect.y, lastRect.w, lastRect.h);
+
+    // 너무 작은 ROI는 화면에서 숨기되 hidden input 값은 비우지 않는다.
+    if (lastRect.w < 5 || lastRect.h < 5) {
       box.style.display = "none";
-      xInput.value = "";
-      yInput.value = "";
-      wInput.value = "";
-      hInput.value = "";
     }
   });
 });

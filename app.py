@@ -229,6 +229,7 @@ def upload():
         "limit_to_60": True,
         "progress_current": 0,
         "progress_total": 0,
+        "error": "",
     }
     return redirect(url_for("index", job=job_id))
 
@@ -253,6 +254,7 @@ def select_frame():
     job["selected_frame"] = f"uploads/{job_id}/{frame_name}"
     job["roi"] = None
     job["status"] = "frame_selected"
+    job["error"] = ""
 
     return redirect(url_for("index", job=job_id))
 
@@ -264,16 +266,26 @@ def set_roi():
     if not job:
         return redirect(url_for("index"))
 
-    x = int(float(request.form.get("x", 0)))
-    y = int(float(request.form.get("y", 0)))
-    w = int(float(request.form.get("w", 0)))
-    h = int(float(request.form.get("h", 0)))
+    def _to_int_or_zero(value):
+        if value in (None, ""):
+            return 0
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return 0
+
+    x = _to_int_or_zero(request.form.get("x"))
+    y = _to_int_or_zero(request.form.get("y"))
+    w = _to_int_or_zero(request.form.get("w"))
+    h = _to_int_or_zero(request.form.get("h"))
 
     if w <= 0 or h <= 0:
+        job["error"] = "ROI를 드래그로 지정하세요."
         return redirect(url_for("index", job=job_id))
 
     job["roi"] = {"x": x, "y": y, "w": w, "h": h}
     job["status"] = "roi_set"
+    job["error"] = ""
     return redirect(url_for("index", job=job_id))
 
 
@@ -288,6 +300,7 @@ def start_ocr():
     job["limit_to_60"] = request.form.get("limit_to_60") == "on"
     job["progress_current"] = 0
     job["progress_total"] = 0
+    job["error"] = ""
     print(f"[OCR][{job_id}] starting background OCR thread")
     threading.Thread(target=_ocr_worker, args=(job_id,), daemon=True).start()
     return redirect(url_for("index", job=job_id))
@@ -303,6 +316,7 @@ def reset_roi():
     job["cancel_requested"] = True
     job["roi"] = None
     job["status"] = "frame_selected" if job.get("selected_frame") else "uploaded"
+    job["error"] = ""
     return redirect(url_for("index", job=job_id))
 
 
