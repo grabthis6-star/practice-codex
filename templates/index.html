@@ -49,17 +49,37 @@
     {% if job and job.selected_frame %}
     <section class="card">
       <h2>3) ROI(자막 영역) 드래그 지정</h2>
-      <p>아래 이미지에서 마우스로 자막 영역을 드래그하세요.</p>
-      <div class="frame-wrap">
-        <img id="roi-image" src="/{{ job.selected_frame }}" alt="선택 프레임" />
-        <div id="roi-box"></div>
+      <p>이미지를 드래그해 ROI를 만들고, 박스를 이동/리사이즈하거나 숫자로 미세 조정하세요.</p>
+      <div class="frame-stage">
+        <div class="frame-wrap">
+          <img id="roi-image" src="/{{ job.selected_frame }}" alt="선택 프레임" />
+          <div id="roi-box">
+            <span class="roi-handle roi-handle-nw" data-handle="nw"></span>
+            <span class="roi-handle roi-handle-ne" data-handle="ne"></span>
+            <span class="roi-handle roi-handle-sw" data-handle="sw"></span>
+            <span class="roi-handle roi-handle-se" data-handle="se"></span>
+            <span class="roi-handle roi-handle-n" data-handle="n"></span>
+            <span class="roi-handle roi-handle-s" data-handle="s"></span>
+            <span class="roi-handle roi-handle-w" data-handle="w"></span>
+            <span class="roi-handle roi-handle-e" data-handle="e"></span>
+          </div>
+        </div>
       </div>
       <form action="{{ url_for('set_roi') }}" method="post" id="roi-form">
         <input type="hidden" name="job_id" value="{{ job_id }}" />
-        <input type="hidden" name="x" id="x" />
-        <input type="hidden" name="y" id="y" />
-        <input type="hidden" name="w" id="w" />
-        <input type="hidden" name="h" id="h" />
+        <input type="hidden" name="x" id="x" value="{{ job.roi.x if job.roi else '' }}" />
+        <input type="hidden" name="y" id="y" value="{{ job.roi.y if job.roi else '' }}" />
+        <input type="hidden" name="w" id="w" value="{{ job.roi.w if job.roi else '' }}" />
+        <input type="hidden" name="h" id="h" value="{{ job.roi.h if job.roi else '' }}" />
+
+        <div class="roi-controls">
+          <label>x <input type="number" id="roi-x" min="0" step="1" value="{{ job.roi.x if job.roi else 0 }}" /></label>
+          <label>y <input type="number" id="roi-y" min="0" step="1" value="{{ job.roi.y if job.roi else 0 }}" /></label>
+          <label>w <input type="number" id="roi-w" min="1" step="1" value="{{ job.roi.w if job.roi else 0 }}" /></label>
+          <label>h <input type="number" id="roi-h" min="1" step="1" value="{{ job.roi.h if job.roi else 0 }}" /></label>
+          <button type="button" id="roi-reset" class="secondary">ROI 초기화</button>
+        </div>
+
         <button type="submit">ROI 저장</button>
       </form>
       {% if job.roi %}

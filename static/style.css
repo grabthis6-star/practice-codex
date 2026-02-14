@@ -5,9 +5,9 @@ body {
 }
 
 .container {
-  max-width: 1000px;
+  max-width: 1100px;
   margin: 24px auto;
-  padding: 0 16px;
+  padding: 0 16px 24px;
 }
 
 .card {
@@ -19,10 +19,12 @@ body {
 }
 
 .thumb-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  display: flex;
   gap: 10px;
   margin: 12px 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
 }
 
 .thumb-item {
@@ -32,6 +34,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 160px;
+  flex: 0 0 160px;
 }
 
 .thumb-item img {
@@ -41,6 +45,11 @@ body {
   border-radius: 6px;
 }
 
+.frame-stage {
+  display: flex;
+  justify-content: center;
+}
+
 .frame-wrap {
   position: relative;
   display: inline-block;
@@ -48,17 +57,68 @@ body {
 }
 
 #roi-image {
+  display: block;
+  max-height: 70vh;
   max-width: 100%;
+  width: auto;
+  height: auto;
+  margin: 0 auto;
   border-radius: 8px;
   border: 1px solid #ccc;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 #roi-box {
   position: absolute;
-  border: 2px solid #00a3ff;
-  background: rgba(0, 163, 255, 0.2);
-  pointer-events: none;
+  border: 3px solid #ff3b30;
+  background: rgba(255, 59, 48, 0.15);
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
   display: none;
+  box-sizing: border-box;
+  cursor: move;
+}
+
+.roi-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #ff3b30;
+  border: 1px solid #fff;
+  border-radius: 50%;
+}
+
+.roi-handle-nw { left: -6px; top: -6px; cursor: nwse-resize; }
+.roi-handle-ne { right: -6px; top: -6px; cursor: nesw-resize; }
+.roi-handle-sw { left: -6px; bottom: -6px; cursor: nesw-resize; }
+.roi-handle-se { right: -6px; bottom: -6px; cursor: nwse-resize; }
+.roi-handle-n { top: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+.roi-handle-s { bottom: -6px; left: calc(50% - 5px); cursor: ns-resize; }
+.roi-handle-w { left: -6px; top: calc(50% - 5px); cursor: ew-resize; }
+.roi-handle-e { right: -6px; top: calc(50% - 5px); cursor: ew-resize; }
+
+.roi-controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(90px, auto));
+  gap: 8px;
+  margin: 14px 0;
+  align-items: end;
+}
+
+.roi-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.roi-controls input {
+  padding: 7px;
+  border: 1px solid #ccd3dc;
+  border-radius: 6px;
 }
 
 button, .button {
@@ -95,32 +155,31 @@ button.secondary {
   display: inline-block;
   margin-left: 8px;
 }
-/* ROI 영역 드래그가 안정적으로 되도록 */
-.frame-wrap{
-  position: relative;
-  display: inline-block;
-  max-width: 100%;
-}
 
-/* 이미지 드래그/선택 방지 */
-#roi-image{
-  display: block;
-  max-width: 100%;
-  height: auto;
-  user-select: none;
-  -webkit-user-drag: none;
-}
+@media (max-width: 768px) {
+  .container {
+    margin: 16px auto;
+    padding: 0 12px 20px;
+  }
 
-/* ROI 박스는 마우스 이벤트를 절대 가로채지 않게 */
-#roi-box{
-  position: absolute;
-  border: 3px solid #ff3b30;
-  background: rgba(255, 59, 48, 0.15);
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  display: none;
-  pointer-events: none; /* ★ 이게 핵심 */
-  box-sizing: border-box;
+  .card {
+    padding: 12px;
+  }
+
+  .thumb-item {
+    min-width: 130px;
+    flex-basis: 130px;
+  }
+
+  .thumb-item img {
+    height: 80px;
+  }
+
+  .roi-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .roi-controls button {
+    grid-column: span 2;
+  }
 }
