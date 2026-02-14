@@ -10,6 +10,12 @@
   <div class="container">
     <h1>MP4 하드자막 OCR 추출기</h1>
 
+    {% if job and job.error %}
+    <section class="card">
+      <p class="error">{{ job.error }}</p>
+    </section>
+    {% endif %}
+
     <section class="card">
       <h2>1) 영상 업로드</h2>
       <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
@@ -104,5 +110,18 @@
   </div>
 
   <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script>
+    const roiForm = document.getElementById("roi-form");
+    if (roiForm) {
+      roiForm.addEventListener("submit", (e) => {
+        const w = document.getElementById("w")?.value;
+        const h = document.getElementById("h")?.value;
+        if (!w || !h || Number(w) <= 0 || Number(h) <= 0) {
+          e.preventDefault();
+          alert("ROI를 드래그로 지정하세요");
+        }
+      });
+    }
+  </script>
 </body>
 </html>
