@@ -60,7 +60,11 @@
       <p class="success">현재 ROI: x={{ job.roi.x }}, y={{ job.roi.y }}, w={{ job.roi.w }}, h={{ job.roi.h }}</p>
       <form action="{{ url_for('start_ocr') }}" method="post">
         <input type="hidden" name="job_id" value="{{ job_id }}" />
-        <button type="submit">1초 간격 OCR 시작</button>
+        <label>
+          <input type="checkbox" name="limit_to_60" checked />
+          60초까지만 OCR (기본값)
+        </label>
+        <button type="submit">2초 간격 OCR 시작</button>
       </form>
       {% endif %}
     </section>
@@ -69,7 +73,8 @@
     {% if job and job.status == 'processing' %}
     <section class="card processing">
       <h2>OCR 처리 중...</h2>
-      <p>1초마다 ROI를 OCR 중입니다. 잠시만 기다려주세요.</p>
+      <p>2초마다 ROI를 OCR 중입니다. 잠시만 기다려주세요.</p>
+      <p>진행 상황: {{ job.progress_current or 0 }}/{{ job.progress_total or 0 }} frames</p>
       <form action="{{ url_for('reset_roi') }}" method="post">
         <input type="hidden" name="job_id" value="{{ job_id }}" />
         <button type="submit" class="secondary">ROI 재설정</button>

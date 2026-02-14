@@ -22,6 +22,8 @@ app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024  # 1GB
 JOBS = {}
 JOBS_LOCK = threading.Lock()
 THUMB_TIMESTAMPS = [0, 5, 10, 20, 30, 40]
+OCR_INTERVAL_SECONDS = 2
+OCR_MAX_SECONDS_DEFAULT = 60
 
 
 def _extract_frame(video_path: str, timestamp_sec: float):
@@ -113,16 +115,26 @@ def _ocr_worker(job_id: str):
     fps = cap.get(cv2.CAP_PROP_FPS) or 0
     total_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
     duration = int(total_frames / fps) if fps > 0 else 0
+    if job.get("limit_to_60", True):
+        duration = min(duration, OCR_MAX_SECONDS_DEFAULT)
+
+    sample_seconds = list(range(0, max(duration, 1) + 1, OCR_INTERVAL_SECONDS))
+    total_samples = len(sample_seconds)
+
+    with JOBS_LOCK:
+        JOBS[job_id]["progress_current"] = 0
+        JOBS[job_id]["progress_total"] = total_samples
 
     x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
     lines = []
 
-    for sec in range(0, max(duration, 1) + 1):
+    for idx, sec in enumerate(sample_seconds, start=1):
         with JOBS_LOCK:
             if JOBS[job_id].get("cancel_requested"):
                 JOBS[job_id]["status"] = "cancelled"
                 cap.release()
                 return
+            JOBS[job_id]["progress_current"] = idx
 
         cap.set(cv2.CAP_PROP_POS_MSEC, sec * 1000)
         ok, frame = cap.read()
@@ -194,6 +206,9 @@ def upload():
         "status": "uploaded",
         "result_text": "",
         "cancel_requested": False,
+        "limit_to_60": True,
+        "progress_current": 0,
+        "progress_total": 0,
     }
     return redirect(url_for("index", job=job_id))
 
@@ -250,6 +265,9 @@ def start_ocr():
         return redirect(url_for("index"))
 
     job["cancel_requested"] = False
+    job["limit_to_60"] = request.form.get("limit_to_60") == "on"
+    job["progress_current"] = 0
+    job["progress_total"] = 0
     thread = threading.Thread(target=_ocr_worker, args=(job_id,), daemon=True)
     thread.start()
     return redirect(url_for("index", job=job_id))
