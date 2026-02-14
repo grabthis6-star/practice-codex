@@ -135,15 +135,65 @@ def _normalize_text(text: str):
     return " ".join(text.strip().split())
 
 
+def _line_char_ratios(line: str):
+    total = len(line)
+    if total == 0:
+        return {"kor": 0.0, "latin_num": 0.0, "special": 1.0}
+
+    kor_count = sum(1 for ch in line if "가" <= ch <= "힣")
+    latin_num_count = sum(1 for ch in line if ch.isascii() and ch.isalnum())
+    special_count = sum(1 for ch in line if not ch.isspace() and not (("가" <= ch <= "힣") or (ch.isascii() and ch.isalnum())))
+    return {
+        "kor": kor_count / total,
+        "latin_num": latin_num_count / total,
+        "special": special_count / total,
+    }
+
+
+def _filter_subtitle_lines(raw_lines, korean_only=False, include_english=False):
+    cleaned = []
+    for raw_line in raw_lines:
+        line = _normalize_text(raw_line)
+        if not line or len(line) <= 3:
+            continue
+
+        ratios = _line_char_ratios(line)
+        min_kor_ratio = 0.3
+        max_latin_num_ratio = 0.55
+        max_special_ratio = 0.45
+        if korean_only:
+            min_kor_ratio = 0.45
+            max_latin_num_ratio = 0.35
+            max_special_ratio = 0.35
+        elif include_english:
+            min_kor_ratio = 0.2
+            max_latin_num_ratio = 0.75
+
+        if ratios["kor"] < min_kor_ratio:
+            continue
+        if ratios["latin_num"] > max_latin_num_ratio:
+            continue
+        if ratios["special"] > max_special_ratio:
+            continue
+
+        cleaned.append(line)
+
+    return cleaned
+
+
 def _dedupe_lines(lines):
     results = []
+    seen = set()
     for line in lines:
         normalized = _normalize_text(line)
         if not normalized:
             continue
+        if normalized in seen:
+            continue
         if any(SequenceMatcher(None, normalized, existing).ratio() >= 0.88 for existing in results):
             continue
         results.append(normalized)
+        seen.add(normalized)
     return results
 
 
@@ -189,6 +239,7 @@ def _ocr_worker(job_id: str):
             JOBS[job_id]["progress_total"] = total_samples
 
         x, y, w, h = roi["x"], roi["y"], roi["w"], roi["h"]
+        raw_lines = []
         lines = []
 
         for idx, sec in enumerate(sample_seconds, start=1):
@@ -230,16 +281,26 @@ def _ocr_worker(job_id: str):
                         JOBS[job_id]["debug_preprocessed_roi_before"] = f"uploads/{job_id}/{before_name}"
                         JOBS[job_id]["debug_preprocessed_roi_after"] = f"uploads/{job_id}/{after_name}"
 
-            psm_mode = int(job.get("psm_mode", 4))
-            if psm_mode not in (4, 6):
-                psm_mode = 4
-            text = pytesseract.image_to_string(proc, lang="kor+eng", config=f"--psm {psm_mode}")
-            text = _normalize_text(text)
-            if text:
-                lines.append(text)
+            psm_mode = int(job.get("psm_mode", 6))
+            if psm_mode not in (6, 7):
+                psm_mode = 6
+            include_english = bool(job.get("include_english", False))
+            lang = "kor+eng" if include_english else "kor"
+            text = pytesseract.image_to_string(proc, lang=lang, config=f"--oem 1 --psm {psm_mode}")
+            frame_lines = [ln for ln in text.splitlines() if ln and ln.strip()]
+            raw_lines.extend(_normalize_text(ln) for ln in frame_lines if _normalize_text(ln))
+            filtered_lines = _filter_subtitle_lines(
+                frame_lines,
+                korean_only=bool(job.get("korean_only", False)),
+                include_english=include_english,
+            )
+            if filtered_lines:
+                lines.extend(filtered_lines)
                 print(f"[OCR][{job_id}] detected text on frame {idx}")
 
+        raw_count = len(raw_lines)
         deduped = _dedupe_lines(lines)
+        cleaned_count = len(deduped)
         result_text = "\n".join(deduped)
         result_path = os.path.join(app.config["UPLOAD_FOLDER"], job_id, "result.txt")
         with open(result_path, "w", encoding="utf-8") as f:
@@ -249,6 +310,8 @@ def _ocr_worker(job_id: str):
             JOBS[job_id]["status"] = "done"
             JOBS[job_id]["result_text"] = result_text
             JOBS[job_id]["result_file"] = result_path
+            JOBS[job_id]["raw_line_count"] = raw_count
+            JOBS[job_id]["cleaned_line_count"] = cleaned_count
     except Exception as exc:
         print(f"[OCR][{job_id}] worker exception: {exc}")
         print(traceback.format_exc())
@@ -302,7 +365,11 @@ def upload():
         "error": "",
         "debug_preprocessed_roi_before": None,
         "debug_preprocessed_roi_after": None,
-        "psm_mode": 4,
+        "psm_mode": 6,
+        "korean_only": False,
+        "include_english": False,
+        "raw_line_count": 0,
+        "cleaned_line_count": 0,
     }
     return redirect(url_for("index", job=job_id))
 
@@ -371,14 +438,18 @@ def start_ocr():
 
     job["cancel_requested"] = False
     job["limit_to_60"] = request.form.get("limit_to_60") == "on"
-    psm_mode = request.form.get("psm_mode", "4")
+    psm_mode = request.form.get("psm_mode", "6")
     try:
         parsed_psm = int(psm_mode)
     except ValueError:
-        parsed_psm = 4
-    job["psm_mode"] = parsed_psm if parsed_psm in (4, 6) else 4
+        parsed_psm = 6
+    job["psm_mode"] = parsed_psm if parsed_psm in (6, 7) else 6
+    job["korean_only"] = request.form.get("korean_only") == "on"
+    job["include_english"] = request.form.get("include_english") == "on"
     job["progress_current"] = 0
     job["progress_total"] = 0
+    job["raw_line_count"] = 0
+    job["cleaned_line_count"] = 0
     job["error"] = ""
     print(f"[OCR][{job_id}] starting background OCR thread")
     threading.Thread(target=_ocr_worker, args=(job_id,), daemon=True).start()
